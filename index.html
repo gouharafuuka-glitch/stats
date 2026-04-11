@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>バスケスタッツ：得点ボード版</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #f4f7f6; margin: 0; padding: 10px; }
+        .screen { max-width: 480px; margin: auto; background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        h2 { color: #333; margin-bottom: 10px; }
+        .btn { padding: 15px; margin: 5px; font-size: 16px; font-weight: bold; cursor: pointer; border: none; border-radius: 10px; transition: 0.2s; }
+        .btn:active { transform: scale(0.9); }
+        
+        /* 得点表示エリア */
+        .score-board { background: #333; color: #fff; padding: 15px; border-radius: 15px; margin-bottom: 15px; }
+        .score-val { font-size: 48px; font-family: 'Courier New', Courier, monospace; color: #ffeb3b; }
+        
+        /* 設定・スタメン選択 */
+        input { width: 80%; padding: 12px; margin: 10px 0; font-size: 16px; border: 1px solid #ccc; border-radius: 8px; }
+        .start-config-btn { background: #2196f3; color: white; width: 80%; }
+        #member-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 15px; }
+        .member-chip { background: #eee; border: 2px solid #ddd; width: 55px; height: 55px; border-radius: 50%; font-size: 18px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-weight: bold; }
+        .member-chip.selected { background: #ff9800; color: white; border-color: #e65100; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+
+        /* 試合画面 */
+        .player-btn { background: #fff; width: 70px; height: 70px; border: 3px solid #333; font-size: 20px; }
+        .type-btn { background: #2196f3; color: white; width: 80px; }
+        .success-btn { background: #4caf50; color: white; width: 120px; }
+        .miss-btn { background: #f44336; color: white; width: 120px; }
+        .cancel-btn { background: #e0e0e0; color: #333; width: 120px; margin-top: 10px; font-size: 14px; }
+        .sub-btn { background: #9c27b0; color: white; width: 45%; }
+        .end-btn { background: #607d8b; color: white; width: 45%; }
+
+        /* 詳細集計表 */
+        .table-container { overflow-x: auto; margin-top: 15px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 400px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background: #333; color: white; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        .rate-small { font-size: 10px; color: #666; display: block; margin-top: 2px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="screen">
+    <div id="setup-screen">
+        <h2>試合設定</h2>
+        <p>登録メンバー (22名):</p>
+        <input type="text" id="all-members" value="0,2,3,6,7,8,9,11,12,13,15,23,24,25,26,28,32,33,35,36,40,51">
+        <button class="btn start-config-btn" onclick="goToSelectStarters()">次へ (スタメン選択)</button>
+    </div>
+
+    <div id="starter-screen" class="hidden">
+        <h2>スタメン5人選択</h2>
+        <p>選択中: <span id="selected-count" style="font-weight:bold; color:#ff9800;">0</span> / 5</p>
+        <div id="member-list"></div>
+        <button class="btn start-config-btn" id="game-start-btn" onclick="startGame()" style="background:#4caf50; display:none; margin-top:20px;">試合開始！</button>
+    </div>
+
+    <div id="game-screen" class="hidden">
+        <div class="score-board">
+            <div>TOTAL SCORE</div>
+            <div class="score-val" id="total-score">0</div>
+        </div>
+        
+        <div id="phase1">
+            <p>選手を選択</p>
+            <div id="court-players" style="display:flex; justify-content:center; gap:5px; flex-wrap:wrap;"></div>
+        </div>
+
+        <div id="phase2" class="hidden">
+            <p>種類を選択 (#<span id="selected-p"></span>)</p>
+            <button class="btn type-btn" onclick="setType('3P')">3P</button>
+            <button class="btn type-btn" onclick="setType('2P')">2P</button>
+            <button class="btn type-btn" onclick="setType('FT')">FT</button>
+            <br>
+            <button class="btn cancel-btn" onclick="resetPhases()">キャンセル</button>
+        </div>
+
+        <div id="phase3" class="hidden">
+            <p>結果 (#<span id="selected-p2"></span> : <span id="selected-type"></span>)</p>
+            <button class="btn success-btn" onclick="finishShot(true)">成功 ○</button>
+            <button class="btn miss-btn" onclick="finishShot(false)">失敗 ×</button>
+            <br>
+            <button class="btn cancel-btn" onclick="backToType()">選び直す</button>
+        </div>
+
+        <div style="margin-top:20px; display:flex; justify-content:space-between;">
+            <button class="btn sub-btn" onclick="startSubstitution()">選手交代</button>
+            <button class="btn end-btn" onclick="showStats()">集計表示</button>
+        </div>
+    </div>
+
+    <div id="stats-screen" class="hidden">
+        <h2>試合結果（詳細）</h2>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>3P<br><small>成功/試投</small></th>
+                        <th>2P<br><small>成功/試投</small></th>
+                        <th>FT<br><small>成功/試投</small></th>
+                        <th>計<br><small>成功率</small></th>
+                    </tr>
+                </thead>
+                <tbody id="stats-body"></tbody>
+            </table>
+        </div>
+        <button class="btn start-config-btn" onclick="location.reload()" style="margin-top:20px;">新しい試合へ</button>
+    </div>
+</div>
+
+<script>
+    let allMembers = [];
+    let onCourt = [];
+    let bench = [];
+    let logs = [];
+    let currentP, currentType, totalScore = 0;
+
+    function goToSelectStarters() {
+        let membersStr = document.getElementById('all-members').value;
+        membersStr = membersStr.replace(/[，、]/g, ',').replace(/\s+/g, '');
+        allMembers = membersStr.split(',').filter(s => s !== "");
+        document.getElementById('setup-screen').classList.add('hidden');
+        document.getElementById('starter-screen').classList.remove('hidden');
+        const listDiv = document.getElementById('member-list');
+        listDiv.innerHTML = "";
+        allMembers.forEach(num => {
+            const chip = document.createElement('div');
+            chip.className = 'member-chip';
+            chip.id = `chip-${num}`;
+            chip.innerText = num;
+            chip.onclick = () => toggleStarter(num);
+            listDiv.appendChild(chip);
+        });
+    }
+
+    function toggleStarter(num) {
+        if (onCourt.includes(num)) {
+            onCourt = onCourt.filter(n => n !== num);
+            document.getElementById(`chip-${num}`).classList.remove('selected');
+        } else {
+            if (onCourt.length < 5) {
+                onCourt.push(num);
+                document.getElementById(`chip-${num}`).classList.add('selected');
+            }
+        }
+        document.getElementById('selected-count').innerText = onCourt.length;
+        document.getElementById('game-start-btn').style.display = (onCourt.length === 5) ? "inline-block" : "none";
+    }
+
+    function startGame() {
+        bench = allMembers.filter(n => !onCourt.includes(n));
+        document.getElementById('starter-screen').classList.add('hidden');
+        document.getElementById('game-screen').classList.remove('hidden');
+        renderPlayers();
+    }
+
+    function renderPlayers() {
+        const container = document.getElementById('court-players');
+        container.innerHTML = "";
+        onCourt.forEach(num => {
+            const btn = document.createElement('button');
+            btn.className = 'btn player-btn';
+            btn.innerText = num;
+            btn.onclick = () => selectPlayer(num);
+            container.appendChild(btn);
+        });
+    }
+
+    function selectPlayer(num) {
+        currentP = num;
+        document.getElementById('selected-p').innerText = num;
+        document.getElementById('selected-p2').innerText = num;
+        document.getElementById('phase1').classList.add('hidden');
+        document.getElementById('phase2').classList.remove('hidden');
+    }
+
+    function setType(type) {
+        currentType = type;
+        document.getElementById('selected-type').innerText = type;
+        document.getElementById('phase2').classList.add('hidden');
+        document.getElementById('phase3').classList.remove('hidden');
+    }
+
+    function backToType() {
+        document.getElementById('phase3').classList.add('hidden');
+        document.getElementById('phase2').classList.remove('hidden');
+    }
+
+    function finishShot(isSuccess) {
+        logs.push({p: currentP, type: currentType, success: isSuccess});
+        
+        // 得点計算
+        if(isSuccess) {
+            if(currentType === '3P') totalScore += 3;
+            else if(currentType === '2P') totalScore += 2;
+            else if(currentType === 'FT') totalScore += 1;
+            document.getElementById('total-score').innerText = totalScore;
+        }
+        
+        resetPhases();
+    }
+
+    function resetPhases() {
+        document.getElementById('phase1').classList.remove('hidden');
+        document.getElementById('phase2').classList.add('hidden');
+        document.getElementById('phase3').classList.add('hidden');
+    }
+
+    function startSubstitution() {
+        let outNum = prompt("下がる選手:", onCourt.join(", "));
+        if (!outNum || !onCourt.includes(outNum)) return;
+        let inNum = prompt("入る選手:\nベンチ: " + bench.join(", "));
+        if (!inNum || !bench.includes(inNum)) return;
+        onCourt = onCourt.map(n => n === outNum ? inNum : n);
+        bench = bench.filter(n => n !== inNum);
+        bench.push(outNum);
+        renderPlayers();
+    }
+
+    function showStats() {
+        if(!confirm("試合を終了して集計を表示しますか？")) return;
+        document.getElementById('game-screen').classList.add('hidden');
+        document.getElementById('stats-screen').classList.remove('hidden');
+        const tbody = document.getElementById('stats-body');
+        tbody.innerHTML = "";
+
+        allMembers.forEach(num => {
+            const pLogs = logs.filter(l => l.p === num);
+            if(pLogs.length === 0) return;
+
+            const calc = (type) => {
+                const s = pLogs.filter(l => l.type === type && l.success).length;
+                const a = pLogs.filter(l => l.type === type).length;
+                const r = a > 0 ? Math.round((s / a) * 100) : 0;
+                return { s, a, r };
+            };
+
+            const t3 = calc('3P'), t2 = calc('2P'), tf = calc('FT');
+            const totalS = t3.s + t2.s + tf.s;
+            const totalA = t3.a + t2.a + tf.a;
+            const totalR = totalA > 0 ? Math.round((totalS / totalA) * 100) : 0;
+
+            tbody.innerHTML += `
+                <tr>
+                    <td><strong>${num}</strong></td>
+                    <td>${t3.s}/${t3.a}<span class="rate-small">${t3.r}%</span></td>
+                    <td>${t2.s}/${t2.a}<span class="rate-small">${t2.r}%</span></td>
+                    <td>${tf.s}/${tf.a}<span class="rate-small">${tf.r}%</span></td>
+                    <td style="background:#fff3e0"><strong>${totalR}%</strong><br><small>${totalS}/${totalA}</small></td>
+                </tr>`;
+        });
+    }
+</script>
+</body>
+</html>
